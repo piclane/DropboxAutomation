@@ -5,7 +5,7 @@ export AWS_PROFILE=piclane_ecr
 aws ecr-public get-login-password --region us-east-1 \
 | docker login --username AWS --password-stdin public.ecr.aws/x9j4t0a2
 
-TAG='public.ecr.aws/x9j4t0a2/dropbox-automation:1.0.0'
+TAG='public.ecr.aws/x9j4t0a2/dropbox-automation:1.0.1'
 
 docker buildx rm amd-arm || true
 docker buildx create --name amd-arm --driver docker-container --platform linux/arm64,linux/amd64

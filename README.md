@@ -92,6 +92,9 @@ DROPBOX_FOLDER_PATH=/path/to/your/dropbox/folder  # デフォルト: "/監視対
 
 # ポート番号（Webhookモードの場合のみ）
 PORT=8080
+
+# その他
+FILE_PREFIX=BR # 処理対象となるファイルのプレフィックス
 ```
 
 **注意**:
@@ -124,7 +127,7 @@ uv run main.py
 このモードでは:
 1. アプリケーションがWebhookサーバーとして起動します（デフォルトポート: 3003）
 2. Dropboxからの通知を受け取ります
-3. 指定したフォルダに「BRWDCE」で始まるPDFファイルが追加されると自動処理します
+3. 指定したフォルダに環境変数 FILE_PREFIX で始まるPDFファイルが追加されると自動処理します
 4. 処理されたファイルは「日付 タイトル.pdf」形式にリネームされ、要約が追加されます
 
 ## DropboxのWebhook設定

@@ -10,6 +10,7 @@ from dropbox.exceptions import ApiError
 from dropbox.files import FileMetadata, WriteMode
 from fastapi import FastAPI, HTTPException, Response
 
+import settings
 from ai import analyze_with_claude
 from settings import PORT
 from utils.dbx import init_dropbox, init_dropbox_cursor
@@ -88,7 +89,7 @@ def handle_dropbox_notification():
                 continue
 
             file_entry: FileMetadata = entry
-            if not file_entry.name.startswith('BRWDCE') or not file_entry.path_lower.endswith('.pdf'):
+            if not file_entry.name.startswith(settings.FILE_PREFIX) or not file_entry.path_lower.endswith('.pdf'):
                 continue
 
             process_dropbox_file(file_entry.path_lower)
