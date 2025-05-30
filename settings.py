@@ -21,7 +21,7 @@ DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
 DROPBOX_FOLDER_PATH = os.environ.get("DROPBOX_FOLDER_PATH", "/監視対象フォルダパス")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 PORT = os.environ.get("PORT", "3003")
-
+FILE_PREFIX = os.environ.get("FILE_PREFIX", "BR")
 
 # 環境変数の検証（ローカルファイル処理の場合はDropbox関連の環境変数は不要）
 def validate_env_vars(for_dropbox=True):
