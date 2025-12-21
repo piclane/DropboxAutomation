@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+import settings
 from prompts import PdfSummaryPrompt
 from utils.llm_processor import LlmProcessor
 
@@ -31,7 +32,7 @@ def analyze_with_claude(pdf_path):
             max_tokens=4000,
         )
 
-        prompt = PdfSummaryPrompt(pdf_path)
+        prompt = PdfSummaryPrompt(pdf_path, settings.TARGET_INDIVIDUALS)
         response = llm_proc.process_with_llm(prompt)
         analysis = response.response_as_json()
         return analysis

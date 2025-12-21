@@ -8,11 +8,12 @@ from utils.llm_processor import LocalFilePromptDescribe
 
 class PdfSummaryPrompt(LocalFilePromptDescribe):
 
-    def __init__(self, local_path: str | Path):
+    def __init__(self, local_path: str | Path, target_individuals: list[str]):
         super().__init__(local_path)
 
         # 今日の日付をYYYYMMDD形式で取得
         self.today_date = datetime.datetime.now().strftime("%Y%m%d")
+        self.target_individuals = target_individuals
 
     def get_prompt(self) -> str:
 
@@ -23,6 +24,11 @@ You are an expert document analyst with advanced PDF processing and information 
 {{today}}
 </todays_date>
 
+Target individuals for focused analysis:
+<target_individuals>
+{{target_individuals}}
+</target_individuals>
+
 Please follow these steps to analyze the document:
 
 1. OCR Processing:
@@ -30,72 +36,120 @@ Please follow these steps to analyze the document:
    - If OCR is needed, perform Optical Character Recognition (OCR) on the document.
    - Extract the text content from the PDF.
 
-2. Document Analysis:
-   Your goal is to extract and generate the following information:
-   a. Document creation date (in YYYYMMDD format)
-   b. Document title (50 characters or less)
-   c. Document summary (approximately 500 characters)
+2. Target Individual Identification:
+   - Check if the document mentions any of the target individuals listed above.
+   - Look for their names, schools, or classes.
+   - Determine which target individual(s), if any, this document is relevant to.
 
-   For each step of your analysis, wrap your thought process in <thought_process> tags.
+3. Document Analysis:
+   Analyze the document internally and extract the following information:
+   
+   a. Document creation date (in YYYYMMDD format):
+      - Look for explicit dates in the document
+      - Consider the context and format of each date found
+      - If no explicit date is found, infer from content
+      - If inference is not possible, use today's date
+   
+   b. Document title (50 characters or less in Japanese):
+      - Use the actual title if present in the document
+      - If no title exists, generate one based on the main themes and content
+      - If a target individual is identified, consider including their name or context in the title when relevant
+      - Ensure it is concise and under 50 characters
+      - Provide the title in Japanese
+   
+   c. Document summary (approximately 500 characters in Japanese):
+      - Identify the main topics and key points
+      - **If one or more target individuals are mentioned in the document:**
+        - Focus the summary on information relevant to the identified target individual(s)
+        - Highlight specific details, requirements, or actions that pertain to them
+        - Include their name and relevant context (school, class, etc.) in the summary
+        - Prioritize information that directly affects or concerns the target individual(s)
+      - **If no target individuals are mentioned:**
+        - Provide a general, comprehensive summary covering the essential content
+        - Focus on the main topics and key points for a general audience
+      - **Format the summary preferably using bullet points:**
+        - Use bullet points (・) to list key information whenever possible
+        - You may include brief headings or section titles as needed
+        - Short explanatory sentences without bullet points are acceptable when they provide necessary context
+        - Prioritize clarity and readability - the goal is to make information easy to scan and understand
+        - Example format:
+          【イベント名】
+          ・日時: XX月XX日
+          ・場所: XXX
+          ・持ち物: XXX
+          保護者の方も参加できます。
+      - Ensure the summary is approximately 500 characters
+      - Provide the summary in Japanese
 
-   Step 0: Identify the document type or category
-   <thought_process>
-   - List key features or content that indicate the document type.
-   - Propose 2-3 possible document categories based on these features.
-   - Choose the most likely category and explain why.
-   </thought_process>
+   d. TODO list extraction:
+      - Carefully examine the document for any requests, actions, or tasks that require response or completion
+      - **If one or more target individuals are identified:**
+        - Extract only actions/tasks that are relevant to the identified target individual(s)
+        - Look for items that require parent/guardian action or response
+        - Common examples include: submission of forms, payment deadlines, bringing items, attendance confirmations, permission slips, etc.
+      - **If no target individuals are identified:**
+        - Extract general action items that would apply to any reader of the document
+      - For each TODO item:
+        - Write a clear, concise action description in Japanese
+        - Identify any associated deadline dates
+        - Convert deadline dates to YYYY-MM-DD format
+        - If no deadline is specified or implied, set deadline to null
+        - If a deadline is given as a relative term (e.g., "by the end of this month", "within 3 days"), calculate the actual date based on today's date
+      - If no actionable items are found, return an empty array for the "todo" field
 
-   Step 1: Determine the document creation date
-   <thought_process>
-   - List all potential dates found in the document, including their context and format.
-   - For each date, explain why it might or might not be the creation date, considering its format and surrounding context.
-   - If no explicit date is found, explain how you inferred the date from the content.
-   - If inference is not possible, use today's date and explain why.
-   </thought_process>
+4. Output Format:
+   Output ONLY the following JSON format with no additional text, explanations, or markdown code blocks:
 
-   Step 2: Identify or generate the document title
-   <thought_process>
-   - Quote potential titles directly from the document.
-   - Identify 3-5 key themes or keywords from the document content.
-   - If generating a title, list 2-3 options based on these themes and keywords.
-   - For each potential title, explain why it might be suitable or not.
-   - Ensure the final chosen title is 50 characters or less.
-   - Translate the final title into Japanese.
-   </thought_process>
+{
+  "date": "YYYYMMDD",
+  "title": "文書タイトル (50文字以内)",
+  "summary": "文書の要約 (約500文字)",
+  "todo": [
+    {"action": "TODOアクション", "deadline": "YYYY-MM-DD"},
+    {"action": "TODOアクション", "deadline": null}
+  ]
+}
 
-   Step 3: Summarize the document
-   <thought_process>
-   - Identify 3-5 main topics from the document.
-   - For each main topic, list 1-2 subtopics or key points.
-   - Quote 3-5 key passages from the document that represent these main points.
-   - Create a concise summary of approximately 500 characters based on these topics and key points.
-   - Translate the summary into Japanese.
-   </thought_process>
+Notes on the "todo" field:
+- If there are no TODO items, use an empty array: "todo": []
+- Each TODO item must have an "action" field (string in Japanese)
+- Each TODO item must have a "deadline" field (string in YYYY-MM-DD format or null)
+- Action descriptions should be clear and specific about what needs to be done
+- Include relevant context in the action if it helps clarify the task
 
-3. Output Format:
-   After your analysis, provide the final output in JSON format with the following structure:
-
-   {
-     "date": "YYYYMMDD",
-     "title": "文書タイトル (50文字以内)",
-     "summary": "文書の要約 (約500文字)"
-   }
-
-   Ensure that both the title and summary in the JSON output are in Japanese.
-
-Please begin your analysis now, starting with the OCR process if necessary, and then proceed with the document analysis steps. It's OK for each thought process section to be quite long.
+Important: Return only the JSON object. Do not include any explanations, thought processes, or additional text before or after the JSON output.
 """
         # プレースホルダーを実際の値に置き換え
+        target_individuals_str = "\n".join([f"- {person}" for person in self.target_individuals])
         prompt = prompt_template.replace("{{today}}", self.today_date)
+        prompt = prompt.replace("{{target_individuals}}", target_individuals_str)
 
         return prompt
 
     def validate_json(self, json_data: Any) -> Any:
         # 必須フィールドの確認
-        required_fields = ["date", "title", "summary"]
+        required_fields = ["date", "title", "summary", "todo"]
         for field in required_fields:
             if field not in json_data:
-                json_data[field] = "不明" if field == "date" else "Unknown"
+                if field == "date":
+                    json_data[field] = "不明"
+                elif field == "todo":
+                    json_data[field] = []
+                else:
+                    json_data[field] = "Unknown"
+
+        # todo がリストであることを確認
+        if not isinstance(json_data["todo"], list):
+            json_data["todo"] = []
+
+        # todo の各項目のバリデーション
+        for item in json_data["todo"]:
+            if not isinstance(item, dict):
+                continue
+            if "action" not in item:
+                item["action"] = "Unknown"
+            if "deadline" not in item:
+                item["deadline"] = None
 
         # 日付形式のバリデーション
         if json_data["date"] == "不明":
@@ -108,9 +162,9 @@ Please begin your analysis now, starting with the OCR process if necessary, and 
             else:
                 json_data["date"] = self.today_date
 
-        # タイトルの長さ確認と調整
-        if len(json_data["title"]) > 100:
-            json_data["title"] = json_data["title"][:97] + "..."
+        # タイトルの長さ確認と調整 (50文字以内)
+        if len(json_data["title"]) > 50:
+            json_data["title"] = json_data["title"][:47] + "..."
 
         # ファイル名に使用できない文字を削除
         invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
