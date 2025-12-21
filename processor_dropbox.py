@@ -14,7 +14,7 @@ import settings
 from ai import analyze_with_claude
 from settings import PORT
 from utils.dbx import init_dropbox, init_dropbox_cursor
-from utils.pdf import annotate_pdf
+from utils.summarizer import summarize_to_html
 
 logger = logging.getLogger(__name__)
 
@@ -108,51 +108,54 @@ def process_dropbox_file(dbx_path: str):
     logger.info(f"Processing Dropbox PDF file: {dbx_path}")
 
     # 一時ファイル
-    old_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.pdf")
-    new_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.pdf")
+    pdf_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.pdf")
+    html_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.html")
 
     try:
         # Dropboxからファイルをダウンロード
         try:
-            with open(old_local_path, 'wb') as f:
+            with open(pdf_local_path, 'wb') as f:
                 metadata, res = dbx.files_download(dbx_path)
                 f.write(res.content)
-            logger.info(f"Downloaded file to: {old_local_path}")
+            logger.info(f"Downloaded file to: {pdf_local_path}")
         except ApiError as e:
             logger.error(f"Error downloading file: {e}")
             raise
 
         # Claudeでファイルを直接分析
-        analysis = analyze_with_claude(old_local_path)
+        analysis = analyze_with_claude(pdf_local_path)
         logger.info(f"Analysis result: date={analysis['date']}, title='{analysis['title']}'")
 
         # 新しいファイル名の生成
-        new_file_name = f"{analysis['date']} {analysis['title']}.pdf"
+        base_name = f"{analysis['date']} {analysis['title']}"
+        new_pdf_name = f"{base_name}.pdf"
+        new_html_name = f"{base_name}.html"
         directory = os.path.dirname(dbx_path)
-        new_dbx_path = os.path.join(directory, new_file_name).replace("\\", "/")
+        new_pdf_dbx_path = os.path.join(directory, new_pdf_name).replace("\\", "/")
+        new_html_dbx_path = os.path.join(directory, new_html_name).replace("\\", "/")
 
-        # 要約を PDF に追加
-        annotate_pdf(old_local_path, new_local_path, analysis['summary'])
+        # 概要を html に保存
+        summarize_to_html(analysis, html_local_path)
 
         try:
-            # ファイル名を変更
+            # PDF ファイル名を変更
             result = dbx.files_move_v2(
                 from_path=dbx_path,
-                to_path=new_dbx_path,
+                to_path=new_pdf_dbx_path,
                 autorename=True
             )
+            actual_new_pdf_path = result.metadata.path_display
+            logger.info(f"Renamed PDF to: {actual_new_pdf_path}")
 
-            # 上書き保存
-            with open(new_local_path, 'rb') as f:
-                result = dbx.files_upload(
+            # HTML をアップロード
+            with open(html_local_path, 'rb') as f:
+                dbx.files_upload(
                     f=f.read(),
-                    path=new_dbx_path,
+                    path=new_html_dbx_path,
                     mode=WriteMode.overwrite,
                     mute=True
                 )
-
-            actual_new_path = result.metadata.path_display
-            logger.info(f"Renamed file to: {actual_new_path}")
+            logger.info(f"Uploaded HTML to: {new_html_dbx_path}")
         except ApiError as e:
             logger.error(f"Error renaming file: {e}")
             raise e
@@ -163,9 +166,9 @@ def process_dropbox_file(dbx_path: str):
     finally:
         # 一時ファイルの削除
         try:
-            if os.path.exists(old_local_path):
-                os.remove(old_local_path)
-            if os.path.exists(new_local_path):
-                os.remove(new_local_path)
+            if os.path.exists(pdf_local_path):
+                os.remove(pdf_local_path)
+            if os.path.exists(html_local_path):
+                os.remove(html_local_path)
         except Exception as e:
             logger.warning(f"Error cleaning up temp files: {e}")
