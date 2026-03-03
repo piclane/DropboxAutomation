@@ -3,7 +3,7 @@
 # app_build
 ########################################################################################################################
 
-FROM public.ecr.aws/debian/debian:bookworm-20251208-slim AS app_build
+FROM public.ecr.aws/debian/debian:bookworm-20260223-slim AS app_build
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN set -e && \
@@ -22,7 +22,7 @@ RUN uv sync
 ########################################################################################################################
 # app
 ########################################################################################################################
-FROM public.ecr.aws/debian/debian:bookworm-20251208-slim AS app
+FROM public.ecr.aws/debian/debian:bookworm-20260223-slim AS app
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN set -e && \
