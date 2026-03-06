@@ -2,6 +2,8 @@ import logging
 import os
 import threading
 import uuid
+import json
+from contextlib import asynccontextmanager
 from tempfile import gettempdir
 from typing import Optional
 
@@ -15,10 +17,23 @@ from ai import analyze_with_claude
 from settings import PORT
 from utils.dbx import init_dropbox, init_dropbox_cursor
 from utils.summarizer import summarize_to_html
+from utils.rabbitmq_publisher import create_publisher, AbstractPublisher
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+publisher: Optional[AbstractPublisher] = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global publisher
+    logger.info("Initializing RabbitMQ publisher")
+    publisher = create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE)
+    yield
+    if publisher:
+        logger.info("Closing RabbitMQ publisher")
+        publisher.close()
+
+app = FastAPI(lifespan=lifespan)
 
 dbx = init_dropbox()
 dbx_folder_cursor = init_dropbox_cursor(dbx)
@@ -156,6 +171,20 @@ def process_dropbox_file(dbx_path: str):
                     mute=True
                 )
             logger.info(f"Uploaded HTML to: {new_html_dbx_path}")
+
+            # RabbitMQ に解析結果を publish
+            try:
+                if publisher:
+                    publisher.publish(
+                        body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
+                        content_type="application/json"
+                    )
+                    logger.info("Published analysis to RabbitMQ")
+                else:
+                    logger.warning("RabbitMQ publisher is not initialized")
+            except Exception as e:
+                logger.error(f"Error publishing to RabbitMQ: {e}")
+
         except ApiError as e:
             logger.error(f"Error renaming file: {e}")
             raise e

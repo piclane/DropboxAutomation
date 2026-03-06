@@ -1,9 +1,12 @@
 import logging
 import os
 import shutil
+import json
 
+import settings
 from ai import analyze_with_claude
 from utils.summarizer import summarize_to_html
+from utils.rabbitmq_publisher import create_publisher
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,17 @@ def process(pdf_path: str):
                 os.remove(new_pdf_path)
             shutil.copy2(pdf_path, new_pdf_path)
             logger.info(f"Copied local file to: {new_pdf_path}")
+
+            # RabbitMQ に解析結果を publish
+            try:
+                with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE) as pub:
+                    pub.publish(
+                        body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
+                        content_type="application/json"
+                    )
+                logger.info("Published analysis to RabbitMQ")
+            except Exception as e:
+                logger.error(f"Error publishing to RabbitMQ: {e}")
 
         except Exception as e:
             logger.error(f"Error renaming local file: {e}")
