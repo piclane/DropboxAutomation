@@ -40,6 +40,8 @@ Please follow these steps to analyze the document:
    - Check if the document mentions any of the target individuals listed above.
    - Look for their names, schools, or classes.
    - Determine which target individual(s), if any, this document is relevant to.
+   - Extract the name(s) of the matched individual(s) (e.g., 山田太郎, 山田花子) to be included in the output as an array.
+   - If no target individual is identified, set the value to an empty array.
 
 3. Document Analysis:
    Analyze the document internally and extract the following information:
@@ -132,6 +134,7 @@ Please follow these steps to analyze the document:
    Output ONLY the following JSON format with no additional text, explanations, or markdown code blocks:
 
 {
+  "target_individuals": ["山田太郎", "山田花子"],
   "date": "YYYYMMDD",
   "title": "文書タイトル (50文字以内)",
   "summary": "文書の要約 (約800文字)",
@@ -145,6 +148,11 @@ Please follow these steps to analyze the document:
     {"title": "終了時刻不明のイベント", "description": "イベントの概要", "location": null, "start_datetime": "YYYY-MM-DDThh:mm:ss", "end_datetime": null, "is_all_day": false}
   ]
 }
+
+Notes on the "target_individuals" field:
+- Set to an array of matched individuals' names in Japanese (e.g., ["山田太郎"] or ["山田太郎", "山田花子"])
+- Include only the names of individuals who are actually mentioned or relevant in this document
+- If no target individual is identified, set to an empty array: "target_individuals": []
 
 Notes on the "todo" field:
 - If there are no TODO items, use an empty array: "todo": []
@@ -179,15 +187,19 @@ Important: Return only the JSON object. Do not include any explanations, thought
 
     def validate_json(self, json_data: Any) -> Any:
         # 必須フィールドの確認
-        required_fields = ["date", "title", "summary", "todo", "schedule"]
+        required_fields = ["target_individuals", "date", "title", "summary", "todo", "schedule"]
         for field in required_fields:
             if field not in json_data:
                 if field == "date":
                     json_data[field] = "不明"
-                elif field == "todo" or field == "schedule":
+                elif field in ["target_individuals", "todo", "schedule"]:
                     json_data[field] = []
                 else:
                     json_data[field] = "Unknown"
+
+        # target_individuals がリストであることを確認
+        if not isinstance(json_data["target_individuals"], list):
+            json_data["target_individuals"] = []
 
         # todo がリストであることを確認
         if not isinstance(json_data["todo"], list):
@@ -216,8 +228,14 @@ Important: Return only the JSON object. Do not include any explanations, thought
                 item["description"] = "Unknown"
             if "location" not in item:
                 item["location"] = None
+            if "is_all_day" not in item:
+                # デフォルトは start_datetime の形式から推測、または false
+                item["is_all_day"] = False
             if "start_datetime" not in item:
-                item["start_datetime"] = self.today_date + "T00:00:00"
+                if item.get("is_all_day"):
+                    item["start_datetime"] = f"{self.today_date[:4]}-{self.today_date[4:6]}-{self.today_date[6:8]}"
+                else:
+                    item["start_datetime"] = f"{self.today_date[:4]}-{self.today_date[4:6]}-{self.today_date[6:8]}T00:00:00"
             if "end_datetime" not in item:
                 item["end_datetime"] = None
 
