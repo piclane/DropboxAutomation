@@ -110,11 +110,22 @@ Please follow these steps to analyze the document:
         - **title**: A concise event name in Japanese (e.g., "授業参観", "運動会", "保護者会")
         - **description**: A brief description of the event in Japanese, including relevant details such as what to bring, notes, etc. Keep it concise but informative.
         - **location**: The venue or place where the event takes place, in Japanese (e.g., "体育館", "3年1組教室", "校庭"). Set to null if no location is specified or inferable from the document.
-        - **start_datetime**: The event's start date and time in ISO 8601 format (YYYY-MM-DDThh:mm:ss)
-          - If both date and time are specified: use full format (e.g., "2025-04-15T09:30:00")
-          - If only a date is specified with no time: use T00:00:00 (e.g., "2025-04-15T00:00:00")
+        - **is_all_day**: Boolean indicating whether this is an all-day event.
+          - Set to true for events with no specific start/end times (e.g., holidays, all-day events marked as 終日)
+          - Set to false for events with specific start times
+        - **start_datetime**: The event's start date or datetime.
+          - For all-day events (is_all_day: true): use date-only ISO 8601 format (YYYY-MM-DD)
+            - Example: "2025-04-15"
+          - For timed events (is_all_day: false): use full ISO 8601 datetime format (YYYY-MM-DDThh:mm:ss)
+            - Example: "2025-04-15T09:30:00"
           - If the date is given as a relative term (e.g., "来週の月曜日", "今月末"), calculate the actual date based on today's date
-        - **end_datetime** (optional): The event's end date and time in ISO 8601 format, if specified. Set to null if not specified.
+          - start_datetime must always have a value (never null)
+        - **end_datetime**: The event's end date or datetime, or null if unknown.
+          - For all-day events (is_all_day: true): use date-only ISO 8601 format (YYYY-MM-DD), or null if end date is unknown
+            - Example: "2025-04-15"
+          - For timed events (is_all_day: false): use full ISO 8601 datetime format (YYYY-MM-DDThh:mm:ss), or null if end time is unknown
+            - Example: "2025-04-15T12:00:00"
+          - Set to null if no end date/time is specified or inferable
       - If no schedule items are found, return an empty array for the "schedule" field
 
 4. Output Format:
@@ -129,8 +140,9 @@ Please follow these steps to analyze the document:
     {"action": "TODOアクション", "deadline": null}
   ],
   "schedule": [
-    {"title": "イベント名", "description": "イベントの概要", "location": "開催場所", "start_datetime": "YYYY-MM-DDThh:mm:ss", "end_datetime": "YYYY-MM-DDThh:mm:ss"},
-    {"title": "イベント名", "description": "イベントの概要", "location": null, "start_datetime": "YYYY-MM-DDThh:mm:ss", "end_datetime": null}
+    {"title": "イベント名", "description": "イベントの概要", "location": "開催場所", "start_datetime": "YYYY-MM-DDThh:mm:ss", "end_datetime": "YYYY-MM-DDThh:mm:ss", "is_all_day": false},
+    {"title": "終日イベント名", "description": "イベントの概要", "location": "開催場所", "start_datetime": "YYYY-MM-DD", "end_datetime": "YYYY-MM-DD", "is_all_day": true},
+    {"title": "終了時刻不明のイベント", "description": "イベントの概要", "location": null, "start_datetime": "YYYY-MM-DDThh:mm:ss", "end_datetime": null, "is_all_day": false}
   ]
 }
 
@@ -147,9 +159,13 @@ Notes on the "schedule" field:
 - Each schedule item must have a "title" field (concise event name in Japanese)
 - Each schedule item must have a "description" field (brief event details in Japanese)
 - Each schedule item must have a "location" field (venue/place in Japanese, or null if unspecified)
-- Each schedule item must have a "start_datetime" field (ISO 8601 format: YYYY-MM-DDThh:mm:ss)
-- Each schedule item must have an "end_datetime" field (ISO 8601 format or null)
-- Use T00:00:00 for start_datetime when only a date is known without a specific time
+- Each schedule item must have an "is_all_day" field (boolean: true for all-day events, false for timed events)
+- Each schedule item must have a "start_datetime" field (always required, never null)
+  - All-day events: YYYY-MM-DD format
+  - Timed events: YYYY-MM-DDThh:mm:ss format
+- Each schedule item must have an "end_datetime" field
+  - All-day events: YYYY-MM-DD format, or null if end date is unknown
+  - Timed events: YYYY-MM-DDThh:mm:ss format, or null if end time is unknown
 - Schedule items represent events to attend or be aware of, NOT tasks to complete
 
 Important: Return only the JSON object. Do not include any explanations, thought processes, or additional text before or after the JSON output.

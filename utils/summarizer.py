@@ -1,4 +1,46 @@
 import html
+import datetime
+
+def _format_datetime(start_str: str, end_str: str | None, is_all_day: bool = False) -> str:
+    """
+    ISO-8601形式の日時を人間が読みやすい形式に変換する。
+
+    Args:
+        start_str (str): 開始日時（ISO-8601形式）
+        end_str (str | None): 終了日時（ISO-8601形式、任意）
+        is_all_day (bool): 終日フラグ
+
+    Returns:
+        str: 変換後の日時文字列
+            - 開始のみ: YYYY/MM/DD HH:MM:SS (終日の場合は YYYY/MM/DD)
+            - 開始・終了あり: YYYY/MM/DD HH:MM:SS 〜 YYYY/MM/DD HH:MM:SS (終日の場合は YYYY/MM/DD 〜 YYYY/MM/DD)
+    """
+    try:
+        start_dt = datetime.datetime.fromisoformat(start_str)
+    except (ValueError, TypeError):
+        return start_str
+
+    end_dt = None
+    if end_str:
+        try:
+            end_dt = datetime.datetime.fromisoformat(end_str)
+        except (ValueError, TypeError):
+            pass
+
+    if is_all_day:
+        start_formatted = start_dt.strftime("%Y/%m/%d")
+    else:
+        # 時刻が 00:00:00 の場合でも秒まで表示するように指定されている (HH:MM:SS形式)
+        start_formatted = start_dt.strftime("%Y/%m/%d %H:%M:%S")
+
+    if end_dt:
+        if is_all_day:
+            end_formatted = end_dt.strftime("%Y/%m/%d")
+        else:
+            end_formatted = end_dt.strftime("%Y/%m/%d %H:%M:%S")
+        return f"{start_formatted} 〜 {end_formatted}"
+
+    return start_formatted
 
 def summarize_to_html(analysis: dict, dest_path: str) -> None:
     """
@@ -53,7 +95,15 @@ def summarize_to_html(analysis: dict, dest_path: str) -> None:
         todo_html = "<table><thead><tr><th>Action</th><th>Deadline</th></tr></thead><tbody>"
         for item in todo_list:
             action = html.escape(item.get("action", ""))
-            deadline = html.escape(str(item.get("deadline") or "-"))
+            raw_deadline = item.get("deadline")
+            if raw_deadline:
+                try:
+                    deadline_dt = datetime.datetime.fromisoformat(str(raw_deadline))
+                    deadline = deadline_dt.strftime("%Y/%m/%d")
+                except (ValueError, TypeError):
+                    deadline = html.escape(str(raw_deadline))
+            else:
+                deadline = "-"
             todo_html += f"<tr><td>{action}</td><td>{deadline}</td></tr>"
         todo_html += "</tbody></table>"
     else:
@@ -62,13 +112,17 @@ def summarize_to_html(analysis: dict, dest_path: str) -> None:
     schedule_html = ""
     schedule_list = analysis.get("schedule", [])
     if schedule_list:
-        schedule_html = "<table><thead><tr><th>Event</th><th>Start</th><th>Location</th><th>Description</th></tr></thead><tbody>"
+        schedule_html = "<table><thead><tr><th>Event</th><th>Time</th><th>Location</th><th>Description</th></tr></thead><tbody>"
         for item in schedule_list:
             s_title = html.escape(item.get("title", "Unknown"))
-            s_start = html.escape(item.get("start_datetime", "-"))
+            s_time = html.escape(_format_datetime(
+                item.get("start_datetime", ""),
+                item.get("end_datetime"),
+                item.get("is_all_day", False)
+            ))
             s_location = html.escape(str(item.get("location") or "-"))
             s_description = html.escape(item.get("description", ""))
-            schedule_html += f"<tr><td>{s_title}</td><td>{s_start}</td><td>{s_location}</td><td>{s_description}</td></tr>"
+            schedule_html += f"<tr><td>{s_title}</td><td>{s_time}</td><td>{s_location}</td><td>{s_description}</td></tr>"
         schedule_html += "</tbody></table>"
     else:
         schedule_html = "<p>予定はありません。</p>"
