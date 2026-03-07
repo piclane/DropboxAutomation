@@ -57,7 +57,7 @@ Please follow these steps to analyze the document:
       - Ensure it is concise and under 50 characters
       - Provide the title in Japanese
    
-   c. Document summary (approximately 500 characters in Japanese):
+   c. Document summary (approximately 800 characters in Japanese):
       - Identify the main topics and key points
       - **If one or more target individuals are mentioned in the document:**
         - Focus the summary on information relevant to the identified target individual(s)
@@ -78,15 +78,16 @@ Please follow these steps to analyze the document:
           ・場所: XXX
           ・持ち物: XXX
           保護者の方も参加できます。
-      - Ensure the summary is approximately 500 characters
+      - Ensure the summary is approximately 800 characters
       - Provide the summary in Japanese
 
    d. TODO list extraction:
       - Carefully examine the document for any requests, actions, or tasks that require response or completion
+      - **TODO items are actions the reader must perform** — such as submitting forms, making payments, preparing items, replying to confirmations, signing permission slips, etc.
+      - **Do NOT include scheduled events or appointments as TODO items.** Events, ceremonies, meetings, and other calendar-type entries should be extracted as schedule items (see section e below).
       - **If one or more target individuals are identified:**
         - Extract only actions/tasks that are relevant to the identified target individual(s)
         - Look for items that require parent/guardian action or response
-        - Common examples include: submission of forms, payment deadlines, bringing items, attendance confirmations, permission slips, etc.
       - **If no target individuals are identified:**
         - Extract general action items that would apply to any reader of the document
       - For each TODO item:
@@ -97,16 +98,39 @@ Please follow these steps to analyze the document:
         - If a deadline is given as a relative term (e.g., "by the end of this month", "within 3 days"), calculate the actual date based on today's date
       - If no actionable items are found, return an empty array for the "todo" field
 
+   e. Schedule (event/appointment) extraction:
+      - Carefully examine the document for any scheduled events, appointments, ceremonies, meetings, or other calendar-type entries
+      - **Schedule items are events that occur at a specific date/time** — such as school events, parent meetings, ceremonies, excursions, class observations, holidays, etc.
+      - **Do NOT include action items or tasks here.** Those belong in the TODO section (see section d above).
+      - **If one or more target individuals are identified:**
+        - Extract only events/schedules that are relevant to the identified target individual(s)
+      - **If no target individuals are identified:**
+        - Extract general events that would apply to any reader of the document
+      - For each schedule item:
+        - **title**: A concise event name in Japanese (e.g., "授業参観", "運動会", "保護者会")
+        - **description**: A brief description of the event in Japanese, including relevant details such as what to bring, notes, etc. Keep it concise but informative.
+        - **location**: The venue or place where the event takes place, in Japanese (e.g., "体育館", "3年1組教室", "校庭"). Set to null if no location is specified or inferable from the document.
+        - **start_datetime**: The event's start date and time in ISO 8601 format (YYYY-MM-DDThh:mm:ss)
+          - If both date and time are specified: use full format (e.g., "2025-04-15T09:30:00")
+          - If only a date is specified with no time: use T00:00:00 (e.g., "2025-04-15T00:00:00")
+          - If the date is given as a relative term (e.g., "来週の月曜日", "今月末"), calculate the actual date based on today's date
+        - **end_datetime** (optional): The event's end date and time in ISO 8601 format, if specified. Set to null if not specified.
+      - If no schedule items are found, return an empty array for the "schedule" field
+
 4. Output Format:
    Output ONLY the following JSON format with no additional text, explanations, or markdown code blocks:
 
 {
   "date": "YYYYMMDD",
   "title": "文書タイトル (50文字以内)",
-  "summary": "文書の要約 (約500文字)",
+  "summary": "文書の要約 (約800文字)",
   "todo": [
     {"action": "TODOアクション", "deadline": "YYYY-MM-DD"},
     {"action": "TODOアクション", "deadline": null}
+  ],
+  "schedule": [
+    {"title": "イベント名", "description": "イベントの概要", "location": "開催場所", "start_datetime": "YYYY-MM-DDThh:mm:ss", "end_datetime": "YYYY-MM-DDThh:mm:ss"},
+    {"title": "イベント名", "description": "イベントの概要", "location": null, "start_datetime": "YYYY-MM-DDThh:mm:ss", "end_datetime": null}
   ]
 }
 
@@ -116,6 +140,17 @@ Notes on the "todo" field:
 - Each TODO item must have a "deadline" field (string in YYYY-MM-DD format or null)
 - Action descriptions should be clear and specific about what needs to be done
 - Include relevant context in the action if it helps clarify the task
+- Do NOT include scheduled events here — those belong in the "schedule" field
+
+Notes on the "schedule" field:
+- If there are no schedule items, use an empty array: "schedule": []
+- Each schedule item must have a "title" field (concise event name in Japanese)
+- Each schedule item must have a "description" field (brief event details in Japanese)
+- Each schedule item must have a "location" field (venue/place in Japanese, or null if unspecified)
+- Each schedule item must have a "start_datetime" field (ISO 8601 format: YYYY-MM-DDThh:mm:ss)
+- Each schedule item must have an "end_datetime" field (ISO 8601 format or null)
+- Use T00:00:00 for start_datetime when only a date is known without a specific time
+- Schedule items represent events to attend or be aware of, NOT tasks to complete
 
 Important: Return only the JSON object. Do not include any explanations, thought processes, or additional text before or after the JSON output.
 """
@@ -128,12 +163,12 @@ Important: Return only the JSON object. Do not include any explanations, thought
 
     def validate_json(self, json_data: Any) -> Any:
         # 必須フィールドの確認
-        required_fields = ["date", "title", "summary", "todo"]
+        required_fields = ["date", "title", "summary", "todo", "schedule"]
         for field in required_fields:
             if field not in json_data:
                 if field == "date":
                     json_data[field] = "不明"
-                elif field == "todo":
+                elif field == "todo" or field == "schedule":
                     json_data[field] = []
                 else:
                     json_data[field] = "Unknown"
@@ -150,6 +185,25 @@ Important: Return only the JSON object. Do not include any explanations, thought
                 item["action"] = "Unknown"
             if "deadline" not in item:
                 item["deadline"] = None
+
+        # schedule がリストであることを確認
+        if not isinstance(json_data["schedule"], list):
+            json_data["schedule"] = []
+
+        # schedule の各項目のバリデーション
+        for item in json_data["schedule"]:
+            if not isinstance(item, dict):
+                continue
+            if "title" not in item:
+                item["title"] = "Unknown"
+            if "description" not in item:
+                item["description"] = "Unknown"
+            if "location" not in item:
+                item["location"] = None
+            if "start_datetime" not in item:
+                item["start_datetime"] = self.today_date + "T00:00:00"
+            if "end_datetime" not in item:
+                item["end_datetime"] = None
 
         # 日付形式のバリデーション
         if json_data["date"] == "不明":

@@ -27,7 +27,7 @@ def analyze_with_claude(pdf_path):
 
     try:
         llm_proc = LlmProcessor(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-sonnet-4-6",
             temperature=0,
             max_tokens=4000,
         )

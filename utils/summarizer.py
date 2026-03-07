@@ -3,7 +3,7 @@ import html
 def summarize_to_html(analysis: dict, dest_path: str) -> None:
     """
     分析結果をHTMLにまとめて保存する。
-    
+
     Args:
         analysis (dict): 分析結果データ
             - date: YYYYMMDD
@@ -21,7 +21,7 @@ def summarize_to_html(analysis: dict, dest_path: str) -> None:
     title = html.escape(analysis.get("title", "No Title"))
     summary_raw = analysis.get("summary", "")
     summary_lines = summary_raw.split('\n')
-    
+
     # より堅牢な要約のHTML変換
     summary_html = ""
     in_list = False
@@ -33,7 +33,7 @@ def summarize_to_html(analysis: dict, dest_path: str) -> None:
                 in_list = False
             summary_html += "<br>"
             continue
-        
+
         if line.startswith('・') or line.startswith('- '):
             if not in_list:
                 summary_html += "<ul>"
@@ -58,6 +58,20 @@ def summarize_to_html(analysis: dict, dest_path: str) -> None:
         todo_html += "</tbody></table>"
     else:
         todo_html = "<p>TODOはありません。</p>"
+
+    schedule_html = ""
+    schedule_list = analysis.get("schedule", [])
+    if schedule_list:
+        schedule_html = "<table><thead><tr><th>Event</th><th>Start</th><th>Location</th><th>Description</th></tr></thead><tbody>"
+        for item in schedule_list:
+            s_title = html.escape(item.get("title", "Unknown"))
+            s_start = html.escape(item.get("start_datetime", "-"))
+            s_location = html.escape(str(item.get("location") or "-"))
+            s_description = html.escape(item.get("description", ""))
+            schedule_html += f"<tr><td>{s_title}</td><td>{s_start}</td><td>{s_location}</td><td>{s_description}</td></tr>"
+        schedule_html += "</tbody></table>"
+    else:
+        schedule_html = "<p>予定はありません。</p>"
 
     html_content = f"""<!DOCTYPE html>
 <html lang="ja">
@@ -155,6 +169,11 @@ def summarize_to_html(analysis: dict, dest_path: str) -> None:
         <section class="todo">
             <h2>TODOリスト</h2>
             {todo_html}
+        </section>
+
+        <section class="schedule">
+            <h2>スケジュール</h2>
+            {schedule_html}
         </section>
     </div>
 </body>
