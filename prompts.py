@@ -11,8 +11,8 @@ class PdfSummaryPrompt(LocalFilePromptDescribe):
     def __init__(self, local_path: str | Path, target_individuals: list[str]):
         super().__init__(local_path)
 
-        # 今日の日付をYYYYMMDD形式で取得
-        self.today_date = datetime.datetime.now().strftime("%Y%m%d")
+        # 今日の日付をYYYY-MM-DD形式で取得
+        self.today_date = datetime.datetime.now().strftime("%Y-%m-%d")
         self.target_individuals = target_individuals
 
     def get_prompt(self) -> str:
@@ -46,7 +46,7 @@ Please follow these steps to analyze the document:
 3. Document Analysis:
    Analyze the document internally and extract the following information:
    
-   a. Document creation date (in YYYYMMDD format):
+   a. Document creation date (in YYYY-MM-DD format):
       - Look for explicit dates in the document
       - Consider the context and format of each date found
       - If no explicit date is found, infer from content
@@ -135,7 +135,7 @@ Please follow these steps to analyze the document:
 
 {
   "target_individuals": ["山田太郎", "山田花子"],
-  "date": "YYYYMMDD",
+  "date": "YYYY-MM-DD",
   "title": "文書タイトル (50文字以内)",
   "summary": "文書の要約 (約800文字)",
   "todo": [
@@ -233,9 +233,9 @@ Important: Return only the JSON object. Do not include any explanations, thought
                 item["is_all_day"] = False
             if "start_datetime" not in item:
                 if item.get("is_all_day"):
-                    item["start_datetime"] = f"{self.today_date[:4]}-{self.today_date[4:6]}-{self.today_date[6:8]}"
+                    item["start_datetime"] = self.today_date
                 else:
-                    item["start_datetime"] = f"{self.today_date[:4]}-{self.today_date[4:6]}-{self.today_date[6:8]}T00:00:00"
+                    item["start_datetime"] = f"{self.today_date}T00:00:00"
             if "end_datetime" not in item:
                 item["end_datetime"] = None
 
@@ -243,12 +243,17 @@ Important: Return only the JSON object. Do not include any explanations, thought
         if json_data["date"] == "不明":
             json_data["date"] = self.today_date
         else:
-            # 数字以外を削除して8桁にする
-            date_str = re.sub(r'\D', '', json_data["date"])
-            if len(date_str) == 8:
-                json_data["date"] = date_str
+            # ISO-8601 形式 (YYYY-MM-DD) か確認し、違えば今日の日付にする
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', json_data["date"])
+            if date_match:
+                json_data["date"] = date_match.group(1)
             else:
-                json_data["date"] = self.today_date
+                # YYYYMMDD 形式の場合もあるので一応考慮
+                date_str = re.sub(r'\D', '', json_data["date"])
+                if len(date_str) == 8:
+                    json_data["date"] = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                else:
+                    json_data["date"] = self.today_date
 
         # タイトルの長さ確認と調整 (50文字以内)
         if len(json_data["title"]) > 50:

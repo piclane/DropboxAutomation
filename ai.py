@@ -16,7 +16,7 @@ def analyze_with_claude(pdf_path):
 
     :param pdf_path: 解析対象の PDF ファイルパス
     :returns: 以下のキーを含む解析結果辞書
-        - date: 文書作成日 (YYYYMMDD形式)
+        - date: 文書作成日 (YYYY-MM-DD形式)
         - title: 文書タイトル (50文字以内)
         - summary: 文書要約 (約500文字)
     :raises FileNotFoundError: 指定された PDF ファイルが存在しないの場合
