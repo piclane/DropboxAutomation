@@ -5,8 +5,6 @@ import uuid
 import json
 from contextlib import asynccontextmanager
 from tempfile import gettempdir
-from typing import Optional
-
 import uvicorn
 from dropbox.exceptions import ApiError
 from dropbox.files import FileMetadata, WriteMode
@@ -21,7 +19,7 @@ from utils.rabbitmq_publisher import create_publisher, AbstractPublisher
 
 logger = logging.getLogger(__name__)
 
-publisher: Optional[AbstractPublisher] = None
+publisher: AbstractPublisher | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,7 +52,7 @@ async def health_check():
 
 
 @app.get('/webhook')
-async def verify_webhook(challenge: Optional[str] = None):
+async def verify_webhook(challenge: str | None = None):
     """
     Dropbox webhook 検証エンドポイント
 
