@@ -14,9 +14,13 @@ uv sync
 
 # Run in local file mode (single PDF)
 uv run src/main.py /path/to/file.pdf
+# or if you prefer using the installed script:
+# PYTHONPATH=src uv run dropbox-automation /path/to/file.pdf
 
 # Run in webhook mode (Dropbox monitoring, starts FastAPI on port 3003)
 uv run src/main.py
+# or:
+# PYTHONPATH=src uv run dropbox-automation
 
 # Tests
 pytest tests/

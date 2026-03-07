@@ -43,11 +43,15 @@ profile = "black"
 line_length = 100
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = "test_*.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[project.scripts]
+dropbox-automation = "main:main"
 
 [tool.hatch.envs.default]
 dependencies = [

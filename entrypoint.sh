@@ -1,3 +1,3 @@
 #!/bin/sh
 
-uv run main.py
+PYTHONPATH=src uv run dropbox-automation
