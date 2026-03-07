@@ -47,7 +47,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+packages = ["src"]
 
 [tool.hatch.envs.default]
 dependencies = [
