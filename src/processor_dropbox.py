@@ -6,6 +6,7 @@ import json
 from contextlib import asynccontextmanager
 from tempfile import gettempdir
 import uvicorn
+from dropbox import Dropbox
 from dropbox.exceptions import ApiError
 from dropbox.files import FileMetadata, WriteMode
 from fastapi import FastAPI, HTTPException, Response
@@ -19,22 +20,168 @@ from utils.rabbitmq_publisher import create_publisher, AbstractPublisher
 
 logger = logging.getLogger(__name__)
 
-publisher: AbstractPublisher | None = None
+
+class DropboxProcessor:
+    def __init__(self):
+        self._publisher: AbstractPublisher | None = None
+        self._dbx: Dropbox | None = None
+        self._dbx_folder_cursor: str | None = None
+        self._fetch_lock = threading.Lock()
+        self._active_threads: list[threading.Thread] = []
+        self._threads_lock = threading.Lock()
+
+    def startup(self):
+        """FastAPI lifespan の起動時に呼ぶ。全リソースを初期化する。"""
+        logger.info("Initializing RabbitMQ publisher")
+        self._publisher = create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE)
+        logger.info("Initializing Dropbox client")
+        self._dbx = init_dropbox()
+        self._dbx_folder_cursor = init_dropbox_cursor(self._dbx)
+
+    def shutdown(self):
+        """FastAPI lifespan のシャットダウン時に呼ぶ。スレッド完了後にリソースを解放する。"""
+        with self._threads_lock:
+            threads = list(self._active_threads)
+        for t in threads:
+            t.join()
+        if self._publisher:
+            logger.info("Closing RabbitMQ publisher")
+            self._publisher.close()
+        if self._dbx:
+            logger.info("Closing Dropbox client")
+            self._dbx.close()
+
+    def on_dropbox_notification(self):
+        """Dropbox から変更通知を受けたときに呼ぶ。バックグラウンドで変更処理を開始する。"""
+        t = threading.Thread(target=self._thread_worker)
+        t.start()
+
+    def _thread_worker(self):
+        """スレッドのエントリポイント。スレッドリストへの登録・除去と処理実行を担う。"""
+        with self._threads_lock:
+            self._active_threads.append(threading.current_thread())
+        try:
+            self._fetch_and_process_changes()
+        finally:
+            with self._threads_lock:
+                self._active_threads.remove(threading.current_thread())
+
+    def _fetch_and_process_changes(self):
+        """Dropbox カーソルで未処理の変更を取得し、対象 PDF ファイルを処理する。
+        _fetch_lock でシリアライズし、複数スレッドによる重複処理を防ぐ。"""
+        with self._fetch_lock:
+            has_more = True
+            while has_more:
+                result = self._dbx.files_list_folder_continue(self._dbx_folder_cursor)
+                for entry in result.entries:
+                    if not isinstance(entry, FileMetadata):
+                        continue
+                    file_entry: FileMetadata = entry
+                    if not file_entry.name.startswith(settings.FILE_PREFIX) \
+                            or not file_entry.path_lower.endswith('.pdf'):
+                        continue
+                    self._process_file(file_entry.path_lower)
+                self._dbx_folder_cursor = result.cursor
+                has_more = result.has_more
+
+    def _process_file(self, dbx_path: str):
+        """Dropbox 上の PDF を1件処理する（ダウンロード・Claude 分析・リネーム・HTML アップロード・RabbitMQ publish）。
+
+        :param dbx_path: 処理対象の Dropbox ファイルパス
+        :raises ApiError: Dropbox API 呼び出しエラーの場合
+        """
+        logger.info(f"Processing Dropbox PDF file: {dbx_path}")
+
+        # 一時ファイル
+        pdf_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.pdf")
+        html_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.html")
+
+        try:
+            # Dropboxからファイルをダウンロード
+            try:
+                with open(pdf_local_path, 'wb') as f:
+                    metadata, res = self._dbx.files_download(dbx_path)
+                    f.write(res.content)
+                logger.info(f"Downloaded file to: {pdf_local_path}")
+            except ApiError as e:
+                logger.error(f"Error downloading file: {e}")
+                raise
+
+            # Claudeでファイルを直接分析
+            analysis = analyze_with_claude(pdf_local_path)
+            logger.info(f"Analysis result: date={analysis['date']}, title='{analysis['title']}'")
+
+            # 新しいファイル名の生成
+            base_name = f"{analysis['date']} {analysis['title']}"
+            new_pdf_name = f"{base_name}.pdf"
+            new_html_name = f"{base_name}.html"
+            directory = os.path.dirname(dbx_path)
+            new_pdf_dbx_path = os.path.join(directory, new_pdf_name).replace("\\", "/")
+            new_html_dbx_path = os.path.join(directory, new_html_name).replace("\\", "/")
+
+            # 概要を html に保存
+            summarize_to_html(analysis, html_local_path)
+
+            try:
+                # PDF ファイル名を変更
+                result = self._dbx.files_move_v2(
+                    from_path=dbx_path,
+                    to_path=new_pdf_dbx_path,
+                    autorename=True
+                )
+                actual_new_pdf_path = result.metadata.path_display
+                logger.info(f"Renamed PDF to: {actual_new_pdf_path}")
+
+                # HTML をアップロード
+                with open(html_local_path, 'rb') as f:
+                    self._dbx.files_upload(
+                        f=f.read(),
+                        path=new_html_dbx_path,
+                        mode=WriteMode.overwrite,
+                        mute=True
+                    )
+                logger.info(f"Uploaded HTML to: {new_html_dbx_path}")
+
+                # RabbitMQ に解析結果を publish
+                try:
+                    self._publisher.publish(
+                        body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
+                        content_type="application/json"
+                    )
+                    logger.info("Published analysis to RabbitMQ")
+                except Exception as e:
+                    logger.error(f"Error publishing to RabbitMQ: {e}")
+
+            except ApiError as e:
+                logger.error(f"Error renaming file: {e}")
+                raise e
+
+            logger.info(f"Successfully processed file: {dbx_path}")
+        except Exception as e:
+            logger.error(f"Error processing file {dbx_path}: {e}")
+        finally:
+            # 一時ファイルの削除
+            try:
+                if os.path.exists(pdf_local_path):
+                    os.remove(pdf_local_path)
+                if os.path.exists(html_local_path):
+                    os.remove(html_local_path)
+            except Exception as e:
+                logger.warning(f"Error cleaning up temp files: {e}")
+
+
+processor = DropboxProcessor()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global publisher
-    logger.info("Initializing RabbitMQ publisher")
-    publisher = create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE)
+    processor.startup()
     yield
-    if publisher:
-        logger.info("Closing RabbitMQ publisher")
-        publisher.close()
+    processor.shutdown()
+
 
 app = FastAPI(lifespan=lifespan)
 
-dbx = init_dropbox()
-dbx_folder_cursor = init_dropbox_cursor(dbx)
 
 def start_server():
     """
@@ -42,6 +189,7 @@ def start_server():
     """
     logger.info(f"Starting application on port {PORT}")
     uvicorn.run(app, host='0.0.0.0', port=int(PORT))
+
 
 @app.get('/health')
 async def health_check():
@@ -77,125 +225,5 @@ async def handle_webhook():
 
     :return: 処理状態を示す辞書オブジェクト
     """
-    threading.Thread(target=handle_dropbox_notification).start()
+    processor.on_dropbox_notification()
     return {"success": True}
-
-
-def handle_dropbox_notification():
-    """
-    Dropbox フォルダの変更通知に対する処理
-
-    指定フォルダ内の PDF ファイルに対して以下の処理を実行:
-    - BRWDCE で始まる PDF ファイルの検出
-    - Claude による分析
-    - 分析結果に基づくファイル名変更
-    - PDF への注釈追加
-    """
-    global dbx_folder_cursor
-
-    has_more = True
-    while has_more:
-        result = dbx.files_list_folder_continue(dbx_folder_cursor)
-
-        for entry in result.entries:
-            if not isinstance(entry, FileMetadata):
-                continue
-
-            file_entry: FileMetadata = entry
-            if not file_entry.name.startswith(settings.FILE_PREFIX) or not file_entry.path_lower.endswith('.pdf'):
-                continue
-
-            process_dropbox_file(file_entry.path_lower)
-
-        dbx_folder_cursor = result.cursor
-        has_more = result.has_more
-
-
-def process_dropbox_file(dbx_path: str):
-    """
-    Dropbox 上の PDF ファイル処理
-
-    :param dbx_path: 処理対象の Dropbox ファイルパス
-    :raises ApiError: Dropbox API 呼び出しエラーの場合
-    """
-    logger.info(f"Processing Dropbox PDF file: {dbx_path}")
-
-    # 一時ファイル
-    pdf_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.pdf")
-    html_local_path = os.path.join(gettempdir(), f"{uuid.uuid4()}.html")
-
-    try:
-        # Dropboxからファイルをダウンロード
-        try:
-            with open(pdf_local_path, 'wb') as f:
-                metadata, res = dbx.files_download(dbx_path)
-                f.write(res.content)
-            logger.info(f"Downloaded file to: {pdf_local_path}")
-        except ApiError as e:
-            logger.error(f"Error downloading file: {e}")
-            raise
-
-        # Claudeでファイルを直接分析
-        analysis = analyze_with_claude(pdf_local_path)
-        logger.info(f"Analysis result: date={analysis['date']}, title='{analysis['title']}'")
-
-        # 新しいファイル名の生成
-        base_name = f"{analysis['date']} {analysis['title']}"
-        new_pdf_name = f"{base_name}.pdf"
-        new_html_name = f"{base_name}.html"
-        directory = os.path.dirname(dbx_path)
-        new_pdf_dbx_path = os.path.join(directory, new_pdf_name).replace("\\", "/")
-        new_html_dbx_path = os.path.join(directory, new_html_name).replace("\\", "/")
-
-        # 概要を html に保存
-        summarize_to_html(analysis, html_local_path)
-
-        try:
-            # PDF ファイル名を変更
-            result = dbx.files_move_v2(
-                from_path=dbx_path,
-                to_path=new_pdf_dbx_path,
-                autorename=True
-            )
-            actual_new_pdf_path = result.metadata.path_display
-            logger.info(f"Renamed PDF to: {actual_new_pdf_path}")
-
-            # HTML をアップロード
-            with open(html_local_path, 'rb') as f:
-                dbx.files_upload(
-                    f=f.read(),
-                    path=new_html_dbx_path,
-                    mode=WriteMode.overwrite,
-                    mute=True
-                )
-            logger.info(f"Uploaded HTML to: {new_html_dbx_path}")
-
-            # RabbitMQ に解析結果を publish
-            try:
-                if publisher:
-                    publisher.publish(
-                        body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
-                        content_type="application/json"
-                    )
-                    logger.info("Published analysis to RabbitMQ")
-                else:
-                    logger.warning("RabbitMQ publisher is not initialized")
-            except Exception as e:
-                logger.error(f"Error publishing to RabbitMQ: {e}")
-
-        except ApiError as e:
-            logger.error(f"Error renaming file: {e}")
-            raise e
-
-        logger.info(f"Successfully processed file: {dbx_path}")
-    except Exception as e:
-        logger.error(f"Error processing file {dbx_path}: {e}")
-    finally:
-        # 一時ファイルの削除
-        try:
-            if os.path.exists(pdf_local_path):
-                os.remove(pdf_local_path)
-            if os.path.exists(html_local_path):
-                os.remove(html_local_path)
-        except Exception as e:
-            logger.warning(f"Error cleaning up temp files: {e}")
