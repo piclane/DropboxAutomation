@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "DropboxAutomation"
-version = "1.0.3"
+version = "1.0.4"
 description = "An application that processes PDF files in Dropbox using Claude AI"
 readme = "README.md"
 requires-python = ">=3.13"
