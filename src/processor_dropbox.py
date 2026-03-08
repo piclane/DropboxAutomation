@@ -16,14 +16,13 @@ from ai import analyze_with_claude
 from settings import PORT
 from utils.dbx import init_dropbox, init_dropbox_cursor
 from utils.summarizer import summarize_to_html
-from utils.rabbitmq_publisher import create_publisher, AbstractPublisher
+from utils.rabbitmq_publisher import create_publisher
 
 logger = logging.getLogger(__name__)
 
 
 class DropboxProcessor:
     def __init__(self):
-        self._publisher: AbstractPublisher | None = None
         self._dbx: Dropbox | None = None
         self._dbx_folder_cursor: str | None = None
         self._fetch_lock = threading.Lock()
@@ -32,8 +31,11 @@ class DropboxProcessor:
 
     def startup(self):
         """FastAPI lifespan の起動時に呼ぶ。全リソースを初期化する。"""
-        logger.info("Initializing RabbitMQ publisher")
-        self._publisher = create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE)
+        if settings.RABBITMQ_PUBLISH_EXCAHNGE:
+            logger.info("Verifying RabbitMQ connection")
+            with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE):
+                pass
+            logger.info("RabbitMQ connection verified")
         logger.info("Initializing Dropbox client")
         self._dbx = init_dropbox()
         self._dbx_folder_cursor = init_dropbox_cursor(self._dbx)
@@ -44,9 +46,6 @@ class DropboxProcessor:
             threads = list(self._active_threads)
         for t in threads:
             t.join()
-        if self._publisher:
-            logger.info("Closing RabbitMQ publisher")
-            self._publisher.close()
         if self._dbx:
             logger.info("Closing Dropbox client")
             self._dbx.close()
@@ -144,10 +143,11 @@ class DropboxProcessor:
 
                 # RabbitMQ に解析結果を publish
                 try:
-                    self._publisher.publish(
-                        body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
-                        content_type="application/json"
-                    )
+                    with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE) as publisher:
+                        publisher.publish(
+                            body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
+                            content_type="application/json"
+                        )
                     logger.info("Published analysis to RabbitMQ")
                 except Exception as e:
                     logger.error(f"Error publishing to RabbitMQ: {e}")
