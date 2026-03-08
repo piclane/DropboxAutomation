@@ -180,6 +180,12 @@ async def lifespan(app: FastAPI):
     processor.shutdown()
 
 
+class EndpointFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # ヘルスチェックエンドポイントのアクセスログを除外
+        return record.args and len(record.args) >= 3 and record.args[2] != "/health"
+
+
 app = FastAPI(lifespan=lifespan)
 
 
@@ -188,6 +194,8 @@ def start_server():
     Uvicorn サーバーを起動し FastAPI アプリケーションを実行
     """
     logger.info(f"Starting application on port {PORT}")
+    # uvicorn のアクセスログからヘルスチェックを除外するフィルタを追加
+    logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
     uvicorn.run(app, host='0.0.0.0', port=int(PORT))
 
 
