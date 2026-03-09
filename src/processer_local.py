@@ -10,7 +10,7 @@ from utils.rabbitmq_publisher import create_publisher
 
 logger = logging.getLogger(__name__)
 
-def process(pdf_path: str):
+def process(pdf_path: str, publish: bool = False, icloud: bool = False):
     """
     ローカル PDF ファイルを Claude AI で解析し、内容に基づいて処理を実行
 
@@ -86,15 +86,28 @@ def process(pdf_path: str):
             logger.info(f"Copied local file to: {new_pdf_path}")
 
             # RabbitMQ に解析結果を publish
-            try:
-                with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE) as pub:
-                    pub.publish(
-                        body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
-                        content_type="application/json"
-                    )
-                logger.info("Published analysis to RabbitMQ")
-            except Exception as e:
-                logger.error(f"Error publishing to RabbitMQ: {e}")
+            if publish:
+                try:
+                    with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE) as pub:
+                        pub.publish(
+                            body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
+                            content_type="application/json"
+                        )
+                    logger.info("Published analysis to RabbitMQ")
+                except Exception as e:
+                    logger.error(f"Error publishing to RabbitMQ: {e}")
+
+            # iCloud にスケジュールを登録
+            if icloud:
+                import subprocess
+                run_sh = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                      "schedule_to_icloud", "run.sh")
+                json_str = json.dumps(analysis, ensure_ascii=False)
+                try:
+                    subprocess.run([run_sh, "--json", json_str], check=True)
+                    logger.info("Registered schedules to iCloud")
+                except Exception as e:
+                    logger.error(f"Error registering to iCloud: {e}")
 
         except Exception as e:
             logger.error(f"Error renaming local file: {e}")

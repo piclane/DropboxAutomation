@@ -108,12 +108,16 @@ FILE_PREFIX=BR # 処理対象となるファイルのプレフィックス
 単一のPDFファイルを処理する場合:
 
 ```bash
-uv run main.py /path/to/your/local/file.pdf
+uv run main.py /path/to/your/local/file.pdf [--publish] [--icloud]
 ```
+
+オプション:
+- `--publish`: RabbitMQ に解析結果を publish します
+- `--icloud`: `schedule_to_icloud` 経由でスケジュール・TODOを iCloud カレンダー/リマインダーに登録します
 
 処理結果:
 - ファイルは「日付 タイトル.pdf」形式にリネームされます
-- 生成された要約がPDFに注釈として追加されます
+- 生成された要約がHTMLファイルとして保存されます
 - 分析結果が標準出力に表示されます
 
 ### Webhookモード (Dropbox監視)

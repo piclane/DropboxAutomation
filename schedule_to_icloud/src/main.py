@@ -203,6 +203,75 @@ def add_calendar_event(
     logger.info(f"Adding calendar event: {title} (Start: {start_dt_str})")
     run_applescript(script)
 
+def process_data(data: dict[str, Any]) -> None:
+    """
+    メッセージデータを解析し、iCloudリマインダーとカレンダーに登録する。
+
+    Args:
+        data: 処理対象のメッセージデータ。
+    """
+    logger.info(f"Received message: {data.get('title', 'No Title')}")
+
+    # 対象者の名前をタイトルの先頭に付与するための接頭辞を作成
+    target_individuals = data.get("target_individuals", [])
+
+    # 名前の置換処理
+    try:
+        replacements = yaml.safe_load(TARGET_INDIVIDUAL_REPLACEMENTS)
+        if isinstance(replacements, list):
+            processed_individuals = []
+            for name in target_individuals:
+                new_name = name
+                for item in replacements:
+                    if isinstance(item, dict):
+                        pattern = item.get("regex")
+                        repl = item.get("replacement", "")
+                        if pattern:
+                            new_name = re.sub(pattern, repl, new_name)
+                processed_individuals.append(new_name)
+            target_individuals = processed_individuals
+    except yaml.YAMLError as e:
+        logger.warning(f"Failed to parse TARGET_INDIVIDUAL_REPLACEMENTS (YAML): {e}")
+
+    prefix = ""
+    if target_individuals:
+        # 空文字になった名前を除外して結合
+        filtered_individuals = [n for n in target_individuals if n.strip()]
+        if filtered_individuals:
+            prefix = ", ".join(filtered_individuals) + " "
+
+    # 宛先リストの決定
+    reminder_list = get_destination(ICLOUD_REMINDER_LIST, target_individuals, "Reminders")
+    calendar_name = get_destination(ICLOUD_CALENDAR_NAME, target_individuals, "Calendar")
+
+    # TODOを登録
+    todos = data.get("todo", [])
+    for todo in todos:
+        if not isinstance(todo, dict):
+            continue
+        action = todo.get("action")
+        deadline = todo.get("deadline")
+        if action:
+            add_reminder(f"{prefix}{action}", deadline, reminder_list)
+
+    # スケジュールを登録
+    schedules = data.get("schedule", [])
+    for sch in schedules:
+        if not isinstance(sch, dict):
+            continue
+        title = sch.get("title")
+        description = sch.get("description", "")
+        location = sch.get("location")
+        start_dt = sch.get("start_datetime")
+        end_dt = sch.get("end_datetime")
+        is_all_day = sch.get("is_all_day", False)
+
+        if title and start_dt:
+            add_calendar_event(
+                f"{prefix}{title}", description, location, start_dt, end_dt, is_all_day, calendar_name
+            )
+
+
 def process_message(
     ch: pika.channel.Channel,
     method: pika.spec.Basic.Deliver,
@@ -220,67 +289,9 @@ def process_message(
     """
     try:
         body_str = body.decode('utf-8')
-        print(body_str)
         data: dict[str, Any] = json.loads(body_str)
-        logger.info(f"Received message: {data.get('title', 'No Title')}")
-
-        # 対象者の名前をタイトルの先頭に付与するための接頭辞を作成
-        target_individuals = data.get("target_individuals", [])
-
-        # 名前の置換処理
-        try:
-            replacements = yaml.safe_load(TARGET_INDIVIDUAL_REPLACEMENTS)
-            if isinstance(replacements, list):
-                processed_individuals = []
-                for name in target_individuals:
-                    new_name = name
-                    for item in replacements:
-                        if isinstance(item, dict):
-                            pattern = item.get("regex")
-                            repl = item.get("replacement", "")
-                            if pattern:
-                                new_name = re.sub(pattern, repl, new_name)
-                    processed_individuals.append(new_name)
-                target_individuals = processed_individuals
-        except yaml.YAMLError as e:
-            logger.warning(f"Failed to parse TARGET_INDIVIDUAL_REPLACEMENTS (YAML): {e}")
-
-        prefix = ""
-        if target_individuals:
-            # 空文字になった名前を除外して結合
-            filtered_individuals = [n for n in target_individuals if n.strip()]
-            if filtered_individuals:
-                prefix = ", ".join(filtered_individuals) + " "
-
-        # 宛先リストの決定
-        reminder_list = get_destination(ICLOUD_REMINDER_LIST, target_individuals, "Reminders")
-        calendar_name = get_destination(ICLOUD_CALENDAR_NAME, target_individuals, "Calendar")
-
-        # TODOを登録
-        todos = data.get("todo", [])
-        for todo in todos:
-            if not isinstance(todo, dict):
-                continue
-            action = todo.get("action")
-            deadline = todo.get("deadline")
-            if action:
-                add_reminder(f"{prefix}{action}", deadline, reminder_list)
-
-        # スケジュールを登録
-        schedules = data.get("schedule", [])
-        for sch in schedules:
-            if not isinstance(sch, dict):
-                continue
-            title = sch.get("title")
-            description = sch.get("description", "")
-            location = sch.get("location")
-            start_dt = sch.get("start_datetime")
-            end_dt = sch.get("end_datetime")
-            is_all_day = sch.get("is_all_day", False)
-
-            if title and start_dt:
-                add_calendar_event(f"{prefix}{title}", description, location, start_dt, end_dt, is_all_day, calendar_name)
-
+        logger.info(json.dumps(data, ensure_ascii=False, indent=2))
+        process_data(data)
         # 正常に処理された場合は確認応答(ACK)を送信
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -384,9 +395,27 @@ YAML ルーティング設定例 (ICLOUD_REMINDER_LIST / ICLOUD_CALENDAR_NAME):
   - destination: 'Reminders'   # regex なし → デフォルト
         """,
     )
-    parser.parse_args()
+    parser.add_argument(
+        "--json",
+        metavar="JSON",
+        dest="json_str",
+        help=(
+            "処理する JSON 文字列を直接指定します。"
+            " このオプションを使用した場合は RabbitMQ に接続せず、処理完了後に終了します。"
+        ),
+    )
+    args = parser.parse_args()
 
     _check_requirements()
+
+    if args.json_str is not None:
+        try:
+            data: dict[str, Any] = json.loads(args.json_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON のパースに失敗しました: {e}")
+            sys.exit(1)
+        process_data(data)
+        return
 
     if not RABBITMQ_PUBLISH_EXCAHNGE:
         logger.error("RABBITMQ_PUBLISH_EXCAHNGE is not set in environment variables.")
