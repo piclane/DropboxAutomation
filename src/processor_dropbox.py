@@ -31,9 +31,9 @@ class DropboxProcessor:
 
     def startup(self):
         """FastAPI lifespan の起動時に呼ぶ。全リソースを初期化する。"""
-        if settings.RABBITMQ_PUBLISH_EXCAHNGE:
+        if settings.RABBITMQ_PUBLISH_EXCHANGE:
             logger.info("Verifying RabbitMQ connection")
-            with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE):
+            with create_publisher(settings.RABBITMQ_PUBLISH_EXCHANGE):
                 pass
             logger.info("RabbitMQ connection verified")
         logger.info("Initializing Dropbox client")
@@ -143,7 +143,7 @@ class DropboxProcessor:
 
                 # RabbitMQ に解析結果を publish
                 try:
-                    with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE) as publisher:
+                    with create_publisher(settings.RABBITMQ_PUBLISH_EXCHANGE) as publisher:
                         publisher.publish(
                             body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
                             content_type="application/json"

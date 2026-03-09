@@ -57,7 +57,7 @@ PDF file → ai.py (analyze_with_claude) → LlmProcessor (Claude Sonnet) → JS
 - **`ai.py`**: Orchestrates PDF analysis using `claude-sonnet-4-6` via LangChain. Returns JSON with `date`, `title`, `summary`, `todo`, `schedule`, `target_individuals`.
 - **`prompts.py`**: Defines `PdfSummaryPrompt` with detailed extraction rules (date formats, title constraints, summary formatting, schedule/TODO structure).
 - **`utils/llm_processor.py`**: Wraps Claude API via `ChatAnthropic`. Key classes: `LlmProcessor`, `LlmResult` (generic response wrapper), `PromptDescribe` (abstract), `LocalFilePromptDescribe` (Base64 file encoding), `PlainPromptDescribe`.
-- **`utils/rabbitmq_publisher.py`**: Uses factory pattern (`create_publisher()`) returning either `RabbitMQPublisher` or `NullPublisher` (no-op when `RABBITMQ_PUBLISH_EXCAHNGE` is unset). Publishers are context managers.
+- **`utils/rabbitmq_publisher.py`**: Uses factory pattern (`create_publisher()`) returning either `RabbitMQPublisher` or `NullPublisher` (no-op when `RABBITMQ_PUBLISH_EXCHANGE` is unset). Publishers are context managers.
 - **`utils/summarizer.py`**: Converts analysis JSON to styled HTML with tables for TODOs and schedules.
 - **`utils/pdf.py`**: PDF annotation using PyMuPDF.
 - **`utils/dbx.py`**: Dropbox OAuth client initialization.
@@ -71,7 +71,7 @@ PDF file → ai.py (analyze_with_claude) → LlmProcessor (Claude Sonnet) → JS
 - `PORT` — webhook server port (default: 3003)
 - `FILE_PREFIX` — file prefix filter (default: "BR")
 - `TARGET_INDIVIDUALS` — YAML list of names to match in documents
-- `RABBITMQ_PUBLISH_EXCAHNGE` — RabbitMQ exchange URI (optional; note: env var has a typo "EXCAHNGE")
+- `RABBITMQ_PUBLISH_EXCHANGE` — RabbitMQ exchange URI (optional)
 
 ## Conventions
 

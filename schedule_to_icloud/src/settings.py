@@ -19,7 +19,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 load_dotenv()
 
 # RabbitMQの接続先URI
-RABBITMQ_PUBLISH_EXCAHNGE: str | None = os.environ.get("RABBITMQ_PUBLISH_EXCAHNGE")
+RABBITMQ_PUBLISH_EXCHANGE: str | None = os.environ.get("RABBITMQ_PUBLISH_EXCHANGE")
 
 # iCloudリマインダーのリスト名
 ICLOUD_REMINDER_LIST: str = os.environ.get("ICLOUD_REMINDER_LIST", "Reminders")

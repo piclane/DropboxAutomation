@@ -19,7 +19,7 @@ import pika
 from settings import (
     ICLOUD_CALENDAR_NAME,
     ICLOUD_REMINDER_LIST,
-    RABBITMQ_PUBLISH_EXCAHNGE,
+    RABBITMQ_PUBLISH_EXCHANGE,
     TARGET_INDIVIDUAL_REPLACEMENTS,
     logger,
 )
@@ -379,7 +379,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 環境変数:
-  RABBITMQ_PUBLISH_EXCAHNGE      RabbitMQ 接続 URI（必須）
+  RABBITMQ_PUBLISH_EXCHANGE      RabbitMQ 接続 URI（必須）
                                    書式: amqp(s)://user:pass@host:port/vhost/exchange
   ICLOUD_REMINDER_LIST           リマインダーリスト名、または正規表現ルーティング設定（YAML）
                                    デフォルト: Reminders
@@ -417,13 +417,13 @@ YAML ルーティング設定例 (ICLOUD_REMINDER_LIST / ICLOUD_CALENDAR_NAME):
         process_data(data)
         return
 
-    if not RABBITMQ_PUBLISH_EXCAHNGE:
-        logger.error("RABBITMQ_PUBLISH_EXCAHNGE is not set in environment variables.")
+    if not RABBITMQ_PUBLISH_EXCHANGE:
+        logger.error("RABBITMQ_PUBLISH_EXCHANGE is not set in environment variables.")
         return
 
-    logger.info(f"Connecting to RabbitMQ: {RABBITMQ_PUBLISH_EXCAHNGE}")
+    logger.info(f"Connecting to RabbitMQ: {RABBITMQ_PUBLISH_EXCHANGE}")
     try:
-        with RabbitMQConsumer(RABBITMQ_PUBLISH_EXCAHNGE) as consumer:
+        with RabbitMQConsumer(RABBITMQ_PUBLISH_EXCHANGE) as consumer:
             consumer.consume(process_message)
     except KeyboardInterrupt:
         logger.info("Interrupted by user, shutting down...")

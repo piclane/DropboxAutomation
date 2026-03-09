@@ -54,7 +54,7 @@ fi
 
 if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
     echo "エラー: .env ファイルが見つかりません。" >&2
-    echo "  ${SCRIPT_DIR}/.env を作成し、RABBITMQ_PUBLISH_EXCAHNGE などを設定してください。" >&2
+    echo "  ${SCRIPT_DIR}/.env を作成し、RABBITMQ_PUBLISH_EXCHANGE などを設定してください。" >&2
     exit 1
 fi
 

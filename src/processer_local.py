@@ -88,7 +88,7 @@ def process(pdf_path: str, publish: bool = False, icloud: bool = False):
             # RabbitMQ に解析結果を publish
             if publish:
                 try:
-                    with create_publisher(settings.RABBITMQ_PUBLISH_EXCAHNGE) as pub:
+                    with create_publisher(settings.RABBITMQ_PUBLISH_EXCHANGE) as pub:
                         pub.publish(
                             body=json.dumps(analysis, ensure_ascii=False).encode('utf-8'),
                             content_type="application/json"

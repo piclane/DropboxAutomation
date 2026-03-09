@@ -32,7 +32,7 @@ uv sync
 
 | 環境変数 | 必須 | 説明 |
 |---|---|---|
-| `RABBITMQ_PUBLISH_EXCAHNGE` | 必須 | RabbitMQ 接続 URI。書式: `amqp(s)://user:pass@host:port/vhost/exchange` |
+| `RABBITMQ_PUBLISH_EXCHANGE` | 必須 | RabbitMQ 接続 URI。書式: `amqp(s)://user:pass@host:port/vhost/exchange` |
 | `ICLOUD_REMINDER_LIST` | 任意 | 登録先リマインダーリスト名（デフォルト: `Reminders`） |
 | `ICLOUD_CALENDAR_NAME` | 任意 | 登録先カレンダー名（デフォルト: `Calendar`） |
 | `TARGET_INDIVIDUAL_REPLACEMENTS` | 任意 | 名前正規化ルール（YAML リスト形式、デフォルト: `[]`） |

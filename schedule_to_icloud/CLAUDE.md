@@ -58,7 +58,7 @@ Incoming JSON messages (produced by the parent DropboxAutomation project) contai
 
 ### Environment Variables
 
-- `RABBITMQ_PUBLISH_EXCAHNGE` — required; RabbitMQ URI (note: typo "EXCAHNGE" is intentional/shared with parent project)
+- `RABBITMQ_PUBLISH_EXCHANGE` — required; RabbitMQ URI
 - `ICLOUD_REMINDER_LIST` — reminder list name or YAML routing config (default: `"Reminders"`)
 - `ICLOUD_CALENDAR_NAME` — calendar name or YAML routing config (default: `"Calendar"`)
 - `TARGET_INDIVIDUAL_REPLACEMENTS` — YAML list of `{regex, replacement}` for name normalization (default: `"[]"`)
@@ -67,5 +67,4 @@ Incoming JSON messages (produced by the parent DropboxAutomation project) contai
 
 - macOS only — AppleScript via `subprocess`/`osascript` is required
 - All user-facing text and logs are in Japanese
-- Shares the `RABBITMQ_PUBLISH_EXCAHNGE` typo with the parent DropboxAutomation project intentionally
 - ACK is always sent (even on error) to avoid infinite requeuing
