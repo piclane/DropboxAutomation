@@ -29,7 +29,7 @@ def analyze_with_claude(pdf_path):
         llm_proc = LlmProcessor(
             model="claude-sonnet-4-6",
             temperature=0,
-            max_tokens=4000,
+            max_tokens=settings.CLAUDE_MAX_TOKENS,
         )
 
         prompt = PdfSummaryPrompt(pdf_path, settings.TARGET_INDIVIDUALS)
