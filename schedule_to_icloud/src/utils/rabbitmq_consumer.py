@@ -1,5 +1,7 @@
 import logging
+import re
 import ssl
+import subprocess
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -85,6 +87,7 @@ class RabbitMQConsumer(AbstractConsumer):
     def _connect(self) -> None:
         """
         RabbitMQ ブローカーに接続し、チャンネルとキューをセットアップする。
+        永続キューが存在する場合はそれを使用し、存在しない場合は一時キューを作成する。
         """
         self._connection = pika.BlockingConnection(self._params)
         self._channel = self._connection.channel()
@@ -92,13 +95,37 @@ class RabbitMQConsumer(AbstractConsumer):
         # Exchange の宣言（念のため）
         self._channel.exchange_declare(exchange=self._exchange, exchange_type='fanout', durable=True)
 
-        # 一時的なキューの作成
-        result = self._channel.queue_declare(queue='', exclusive=True)
-        self._queue_name = result.method.queue
+        # 永続キューの存在確認
+        persistent_queue_name = self.get_persistent_queue_name()
+        if self._exists_persistent_queue(persistent_queue_name):
+            self._queue_name = persistent_queue_name
+        else:
+            # 一時的なキューの作成
+            result = self._channel.queue_declare(queue='', exclusive=True)
+            self._queue_name = result.method.queue
+            # キューを Exchange にバインド
+            self._channel.queue_bind(exchange=self._exchange, queue=self._queue_name)
 
-        # キューを Exchange にバインド
-        self._channel.queue_bind(exchange=self._exchange, queue=self._queue_name)
         logger.info(f"Connected to RabbitMQ and bound to queue: {self._queue_name}")
+
+    def _exists_persistent_queue(self, queue_name: str) -> bool:
+        """
+        永続キューが存在するか確認する。
+
+        Args:
+            queue_name: 確認するキュー名。
+
+        Returns:
+            bool: キューが存在する場合は True、存在しない場合は False。
+        """
+        try:
+            self._channel.queue_declare(queue=queue_name, passive=True)
+            return True
+        except pika.exceptions.ChannelClosedByBroker as e:
+            if e.reply_code == 404:
+                self._channel = self._connection.channel()
+                return False
+            raise
 
     def consume(
         self,
@@ -113,12 +140,13 @@ class RabbitMQConsumer(AbstractConsumer):
                 シグネチャ: callback(ch, method, properties, body)
         """
         error_count: int = 0
+        retry_delay: int = 5
         while True:
             try:
                 if not self._connection or self._connection.is_closed:
                     self._connect()
 
-                logger.info(f"Waiting for messages from exchange: {self._exchange}")
+                logger.info(f"Waiting for messages from exchange: {self._exchange}, queue: {self._queue_name}")
                 self._channel.basic_consume(
                     queue=self._queue_name,
                     on_message_callback=callback,
@@ -127,17 +155,20 @@ class RabbitMQConsumer(AbstractConsumer):
                 self._channel.start_consuming()
                 # 正常に終了（あるいはメッセージ処理が再開）した場合はカウントをリセット
                 error_count = 0
+                retry_delay = 5
             except (pika.exceptions.AMQPConnectionError, pika.exceptions.AMQPChannelError) as e:
-                logger.warning(f"Connection lost, retrying in 5 seconds... Error: {e}")
-                time.sleep(5)
+                logger.warning(f"Connection lost, retrying in {retry_delay} seconds... Error: {e}")
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 300)
             except Exception as e:
                 error_count += 1
                 logger.error(f"Unexpected error in consume (Attempt {error_count}/10): {e}")
                 if error_count >= 10:
                     logger.critical("Too many unexpected errors, raising exception.")
                     raise
-                # 予期せぬエラーでもとりあえず再試行を試みるが、少し待機する
-                time.sleep(5)
+                # 予期せぬエラーでもとりあえず再試行を試みるが、バックオフして待機する
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 300)
 
     def close(self) -> None:
         """
@@ -145,6 +176,68 @@ class RabbitMQConsumer(AbstractConsumer):
         """
         if hasattr(self, "_connection") and self._connection and self._connection.is_open:
             self._connection.close()
+
+    @staticmethod
+    def _get_hardware_uuid() -> str:
+        """
+        macOS のハードウェア UUID を取得する。
+
+        Returns:
+            str: ハードウェア UUID。
+
+        Raises:
+            RuntimeError: UUID の取得に失敗した場合。
+        """
+        result = subprocess.run(
+            ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+            capture_output=True,
+            text=True,
+        )
+        match = re.search(r'"IOPlatformUUID"\s*=\s*"([^"]+)"', result.stdout)
+        if not match:
+            raise RuntimeError("ハードウェア UUID の取得に失敗しました。")
+        return match.group(1)
+
+    @staticmethod
+    def get_persistent_queue_name() -> str:
+        """
+        永続キューの名前を返す。
+        形式: s2ic_<macのハードウェアUUID>
+
+        Returns:
+            str: 永続キュー名。
+        """
+        return f"s2ic_{RabbitMQConsumer._get_hardware_uuid()}"
+
+    def install_persistent_queue(self, queue_name: str) -> None:
+        """
+        永続的なキューを作成し、exchange にバインドする。
+        既にキューが存在する場合はエラーログを出力して正常終了する。
+
+        Args:
+            queue_name: 作成するキュー名。
+        """
+        if self._exists_persistent_queue(queue_name):
+            logger.error(f"永続キューは既に存在します: {queue_name}")
+            return
+        self._channel.queue_declare(queue=queue_name, durable=True, exclusive=False, auto_delete=False)
+        self._channel.queue_bind(exchange=self._exchange, queue=queue_name)
+        logger.info(f"永続キューを作成しました: {queue_name} (exchange: {self._exchange})")
+
+    def uninstall_persistent_queue(self, queue_name: str) -> None:
+        """
+        永続的なキューを exchange からアンバインドし、削除する。
+        キューが存在しない場合はエラーログを出力して正常終了する。
+
+        Args:
+            queue_name: 削除するキュー名。
+        """
+        if not self._exists_persistent_queue(queue_name):
+            logger.error(f"永続キューが存在しません: {queue_name}")
+            return
+        self._channel.queue_unbind(queue=queue_name, exchange=self._exchange)
+        self._channel.queue_delete(queue=queue_name)
+        logger.info(f"永続キューを削除しました: {queue_name} (exchange: {self._exchange})")
 
     @staticmethod
     def _parse_uri(uri: str) -> tuple[str, pika.ConnectionParameters]:

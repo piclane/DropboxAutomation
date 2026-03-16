@@ -1,0 +1,4 @@
+schedule_to_icloud.src.utils.rabbitmq_consumer.RabbitMQConsumer.install_persistent_queue や schedule_to_icloud.src.utils.rabbitmq_consumer.RabbitMQConsumer.uninstall_persistent_queue で
+永続的なキューが存在するかどうかをチェックしてから作成または削除するようにしてください。
+- キュー作成時に既にキューが存在していた場合は、エラーログを出力して正常終了してください。
+- キュー削除時にキューが存在していない場合は、エラーログを出力して正常終了してください。

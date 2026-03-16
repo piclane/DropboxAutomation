@@ -404,7 +404,36 @@ YAML ルーティング設定例 (ICLOUD_REMINDER_LIST / ICLOUD_CALENDAR_NAME):
             " このオプションを使用した場合は RabbitMQ に接続せず、処理完了後に終了します。"
         ),
     )
+    parser.add_argument(
+        "--install",
+        action="store_true",
+        help="永続的なキューを作成して終了します。",
+    )
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="永続的なキューを削除して終了します。",
+    )
+    parser.add_argument(
+        "--check-installed",
+        action="store_true",
+        dest="check_installed",
+        help="永続キューが作成済みかどうかを確認します。インストール済みの場合は終了コード 0、そうでない場合は終了コード 1 を返します。",
+    )
     args = parser.parse_args()
+
+    if args.check_installed:
+        if not RABBITMQ_PUBLISH_EXCHANGE:
+            logger.error("RABBITMQ_PUBLISH_EXCHANGE is not set in environment variables.")
+            sys.exit(2)
+        try:
+            with RabbitMQConsumer(RABBITMQ_PUBLISH_EXCHANGE) as consumer:
+                queue_name = RabbitMQConsumer.get_persistent_queue_name()
+                installed = consumer._exists_persistent_queue(queue_name)
+            sys.exit(0 if installed else 1)
+        except Exception as e:
+            logger.error(f"RabbitMQ への接続に失敗しました: {e}")
+            sys.exit(2)
 
     _check_requirements()
 
@@ -415,6 +444,24 @@ YAML ルーティング設定例 (ICLOUD_REMINDER_LIST / ICLOUD_CALENDAR_NAME):
             logger.error(f"JSON のパースに失敗しました: {e}")
             sys.exit(1)
         process_data(data)
+        return
+
+    if args.install:
+        if not RABBITMQ_PUBLISH_EXCHANGE:
+            logger.error("RABBITMQ_PUBLISH_EXCHANGE is not set in environment variables.")
+            sys.exit(1)
+        with RabbitMQConsumer(RABBITMQ_PUBLISH_EXCHANGE) as consumer:
+            queue_name = RabbitMQConsumer.get_persistent_queue_name()
+            consumer.install_persistent_queue(queue_name)
+        return
+
+    if args.uninstall:
+        if not RABBITMQ_PUBLISH_EXCHANGE:
+            logger.error("RABBITMQ_PUBLISH_EXCHANGE is not set in environment variables.")
+            sys.exit(1)
+        with RabbitMQConsumer(RABBITMQ_PUBLISH_EXCHANGE) as consumer:
+            queue_name = RabbitMQConsumer.get_persistent_queue_name()
+            consumer.uninstall_persistent_queue(queue_name)
         return
 
     if not RABBITMQ_PUBLISH_EXCHANGE:

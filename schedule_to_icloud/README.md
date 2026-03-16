@@ -79,13 +79,16 @@ uv sync
 `install.sh` を使うと、macOS ログイン時に自動起動する LaunchAgent として登録されます。
 クラッシュした場合も自動的に再起動します。
 
+**注意: 実行前に `.env` ファイルを正しく作成・設定しておいてください。** インストール時に `.env` の内容が確認され、インストール先へコピーされます。
+
 ```bash
 ./install.sh
 ```
 
-インストール時に `uv sync` が実行されるため、事前に `uv sync` を手動で行う必要はありません。
+- **インストール先**: `~/Library/Application Support/local.schedule-to-icloud`
+- **ログディレクトリ**: `~/Library/Logs/schedule_to_icloud/`
 
-ログは `~/Library/Logs/schedule_to_icloud/` に出力されます。
+インストール時に `uv sync` が実行されるため、事前に `uv sync` を手動で行う必要はありません。
 
 インストール後の操作:
 
